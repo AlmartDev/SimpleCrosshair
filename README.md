@@ -17,7 +17,7 @@ cmake --build build --config MinSizeRel
 ```
 
 ### CPU/RAM usage
-- Executable Size: **198KB**.
+- Executable Size: **13.5KB**.
 - CPU Usage: **0%** (YES really)
 - RAM Usage: **9.1 MB**
 
