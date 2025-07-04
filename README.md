@@ -2,6 +2,7 @@
 Tired of a simple overlay taking over 100MB of RAM for no reason? </br> A very light, fast and portable crosshair overlay built with C++. </br> The current version is as minimal as it can get
 
 ### Crosshair Customization
+UI was included in the ```gui-incluided``` branch
 Windows system tray (or notification area) -> Select CrosshairOverlay -> Settings
 
 ### CPU/RAM usage
