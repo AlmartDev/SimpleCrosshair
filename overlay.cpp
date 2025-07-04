@@ -1,5 +1,5 @@
 // ------------------------------------------------
-// Crosshair Overlay 1.0 Minimal
+// Crosshair Overlay 1.0 Gui-included
 // By Alonso Martínez (@almartdev)
 // ------------------------------------------------
 
@@ -9,19 +9,44 @@
 #include <d2d1.h>
 #include <shellapi.h>
 #include <dwmapi.h>
+#include <commdlg.h>
+#include <wchar.h>
 
 #pragma comment(lib, "d2d1")
 #pragma comment(lib, "dwmapi")
 #pragma comment(lib, "shell32")
+#pragma comment(lib, "comdlg32")
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAY_EXIT 1001
+#define ID_TRAY_SETTINGS 1002
+#define ID_EDIT_LENGTH 2001
+#define ID_EDIT_THICKNESS 2002
+#define ID_BTN_COLOR 2003
 
 ID2D1Factory* pFactory = nullptr;
 ID2D1HwndRenderTarget* pRenderTarget = nullptr;
 ID2D1SolidColorBrush* pBrush = nullptr;
 HINSTANCE gInstance = nullptr;
 HWND gHwnd = nullptr;
+
+// Crosshair settings
+float crosshairLength = 10.0f;
+float crosshairThickness = 1.0f;
+COLORREF crosshairColor = RGB(255, 0, 0);
+
+void UpdateBrushColor() {
+    if (pBrush) {
+        pBrush->Release();
+        pBrush = nullptr;
+    }
+
+    FLOAT r = GetRValue(crosshairColor) / 255.0f;
+    FLOAT g = GetGValue(crosshairColor) / 255.0f;
+    FLOAT b = GetBValue(crosshairColor) / 255.0f;
+
+    pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(r, g, b), &pBrush);
+}
 
 void AddTrayIcon(HWND hwnd) {
     NOTIFYICONDATA nid = {};
@@ -47,11 +72,100 @@ void ShowTrayMenu(HWND hwnd) {
     POINT pt;
     GetCursorPos(&pt);
     HMENU hMenu = CreatePopupMenu();
+    InsertMenu(hMenu, -1, MF_BYPOSITION, ID_TRAY_SETTINGS, L"Settings");
     InsertMenu(hMenu, -1, MF_BYPOSITION, ID_TRAY_EXIT, L"Exit");
 
-    SetForegroundWindow(hwnd);  // Required before TrackPopupMenu
+    SetForegroundWindow(hwnd);
     TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, 0, hwnd, nullptr);
     DestroyMenu(hMenu);
+}
+
+// Settings window procedure
+LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static HWND hLengthEdit, hThicknessEdit;
+
+    switch (msg) {
+        case WM_CREATE: {
+            CreateWindowW(L"STATIC", L"Length:", WS_VISIBLE | WS_CHILD,
+                          10, 10, 60, 20, hwnd, nullptr, gInstance, nullptr);
+            hLengthEdit = CreateWindowW(L"EDIT", nullptr,
+                          WS_VISIBLE | WS_CHILD | WS_BORDER | ES_AUTOHSCROLL,
+                          80, 10, 100, 20, hwnd, (HMENU)ID_EDIT_LENGTH, gInstance, nullptr);
+
+            CreateWindowW(L"STATIC", L"Thickness:", WS_VISIBLE | WS_CHILD,
+                          10, 40, 60, 20, hwnd, nullptr, gInstance, nullptr);
+            hThicknessEdit = CreateWindowW(L"EDIT", nullptr,
+                          WS_VISIBLE | WS_CHILD | WS_BORDER | ES_AUTOHSCROLL,
+                          80, 40, 100, 20, hwnd, (HMENU)ID_EDIT_THICKNESS, gInstance, nullptr);
+
+            CreateWindowW(L"BUTTON", L"Color", WS_VISIBLE | WS_CHILD,
+                          10, 70, 60, 25, hwnd, (HMENU)ID_BTN_COLOR, gInstance, nullptr);
+
+            CreateWindowW(L"BUTTON", L"OK", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                          80, 70, 50, 25, hwnd, (HMENU)IDOK, gInstance, nullptr);
+
+            CreateWindowW(L"BUTTON", L"Cancel", WS_VISIBLE | WS_CHILD,
+                          140, 70, 60, 25, hwnd, (HMENU)IDCANCEL, gInstance, nullptr);
+
+            wchar_t buf[32];
+            swprintf_s(buf, L"%.0f", crosshairLength);
+            SetWindowTextW(hLengthEdit, buf);
+            swprintf_s(buf, L"%.0f", crosshairThickness);
+            SetWindowTextW(hThicknessEdit, buf);
+            return 0;
+        }
+
+        case WM_COMMAND:
+            switch (LOWORD(wParam)) {
+                case ID_BTN_COLOR: {
+                    CHOOSECOLOR cc = { sizeof(cc) };
+                    COLORREF custom[16] = {};
+                    cc.hwndOwner = hwnd;
+                    cc.rgbResult = crosshairColor;
+                    cc.lpCustColors = custom;
+                    cc.Flags = CC_RGBINIT | CC_FULLOPEN;
+                    if (ChooseColor(&cc)) {
+                        crosshairColor = cc.rgbResult;
+                    }
+                    break;
+                }
+                case IDOK: {
+                    wchar_t buf[32];
+                    GetWindowTextW(hLengthEdit, buf, 32);
+                    crosshairLength = (float)_wtoi(buf);
+                    GetWindowTextW(hThicknessEdit, buf, 32);
+                    crosshairThickness = (float)_wtoi(buf);
+                    UpdateBrushColor();
+                    InvalidateRect(gHwnd, nullptr, TRUE);
+                    DestroyWindow(hwnd);
+                    break;
+                }
+                case IDCANCEL:
+                    DestroyWindow(hwnd);
+                    break;
+            }
+            return 0;
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            return 0;
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+void ShowSettingsWindow(HWND parent) {
+    WNDCLASS wc = {};
+    wc.lpfnWndProc = SettingsProc;
+    wc.hInstance = gInstance;
+    wc.lpszClassName = L"SettingsWindow";
+    RegisterClass(&wc);
+
+    HWND hWnd = CreateWindowEx(
+        0, L"SettingsWindow", L"Crosshair Settings",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, 230, 150,
+        parent, nullptr, gInstance, nullptr
+    );
+    ShowWindow(hWnd, SW_SHOW);
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -78,20 +192,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     &pRenderTarget
                 );
 
-                pRenderTarget->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Red), &pBrush);
+                UpdateBrushColor();
             }
 
             pRenderTarget->BeginDraw();
-            pRenderTarget->Clear(D2D1::ColorF(0, 0.0f));  // Fully transparent background
+            pRenderTarget->Clear(D2D1::ColorF(0, 0.0f));
 
             D2D1_SIZE_F rtSize = pRenderTarget->GetSize();
             float cx = rtSize.width / 2;
             float cy = rtSize.height / 2;
-            float len = 10.0f;
-            float thickness = 1.0f;
 
-            pRenderTarget->DrawLine(D2D1::Point2F(cx - len, cy), D2D1::Point2F(cx + len, cy), pBrush, thickness);
-            pRenderTarget->DrawLine(D2D1::Point2F(cx, cy - len), D2D1::Point2F(cx, cy + len), pBrush, thickness);
+            pRenderTarget->DrawLine(D2D1::Point2F(cx - crosshairLength, cy), D2D1::Point2F(cx + crosshairLength, cy), pBrush, crosshairThickness);
+            pRenderTarget->DrawLine(D2D1::Point2F(cx, cy - crosshairLength), D2D1::Point2F(cx, cy + crosshairLength), pBrush, crosshairThickness);
 
             pRenderTarget->EndDraw();
             ValidateRect(hwnd, nullptr);
@@ -108,8 +220,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
 
         case WM_COMMAND:
-            if (LOWORD(wParam) == ID_TRAY_EXIT) {
-                PostQuitMessage(0);
+            switch (LOWORD(wParam)) {
+                case ID_TRAY_EXIT:
+                    PostQuitMessage(0);
+                    break;
+                case ID_TRAY_SETTINGS:
+                    ShowSettingsWindow(hwnd);
+                    break;
             }
             break;
 
